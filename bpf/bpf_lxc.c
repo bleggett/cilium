@@ -195,86 +195,120 @@ select_ct_map4(struct __ctx_buff *ctx __maybe_unused, int dir __maybe_unused,
 }
 #endif
 
-#define TAIL_CT_LOOKUP4(ID, NAME, DIR, CONDITION, TARGET_ID, TARGET_NAME)	\
-declare_tailcall_if(CONDITION, ID)						\
-int NAME(struct __ctx_buff *ctx)						\
-{										\
-	struct ct_buffer4 ct_buffer = {};					\
-	int l4_off, ret = CTX_ACT_OK;						\
-	struct ipv4_ct_tuple *tuple;						\
-	struct ct_state *ct_state;						\
-	void *data, *data_end;							\
-	struct iphdr *ip4;							\
-	__u32 zero = 0;								\
-	void *map;									\
-										\
-	ct_state = (struct ct_state *)&ct_buffer.ct_state;			\
-	tuple = (struct ipv4_ct_tuple *)&ct_buffer.tuple;			\
-										\
-	if (!revalidate_data(ctx, &data, &data_end, &ip4))			\
-		return DROP_INVALID;						\
-										\
-	tuple->nexthdr = ip4->protocol;						\
-	tuple->daddr = ip4->daddr;						\
-	tuple->saddr = ip4->saddr;						\
-										\
-	l4_off = ETH_HLEN + ipv4_hdrlen(ip4);					\
-										\
-	map = select_ct_map4(ctx, DIR, tuple);				\
-	if (!map)									\
-		return DROP_CT_NO_MAP_FOUND;					\
-											\
-	ct_buffer.ret = ct_lookup4(map, tuple, ctx, l4_off,		\
-				   DIR, ct_state, &ct_buffer.monitor);		\
-	if (ct_buffer.ret < 0)							\
-		return ct_buffer.ret;						\
-										\
-	if (map_update_elem(&CT_TAIL_CALL_BUFFER4, &zero, &ct_buffer, 0) < 0)	\
-		return DROP_INVALID_TC_BUFFER;					\
-										\
-	invoke_tailcall_if(CONDITION, TARGET_ID, TARGET_NAME);			\
-	return ret;								\
-}
+#if defined ENABLE_IPV4 || defined ENABLE_IPV6
+static __always_inline int drop_for_direction(struct __ctx_buff *ctx,
+					      enum ct_dir dir, __u32 reason)
+{
+	__u32 dst = 0;
+	__u32 dst_id = 0;
+	enum metric_dir m_dir = METRIC_EGRESS;
+	__u32 src_label = 0;
 
-#define TAIL_CT_LOOKUP6(ID, NAME, DIR, CONDITION, TARGET_ID, TARGET_NAME)	\
-declare_tailcall_if(CONDITION, ID)						\
-int NAME(struct __ctx_buff *ctx)						\
-{										\
-	int l4_off, ret = CTX_ACT_OK, hdrlen;					\
-	struct ct_buffer6 ct_buffer = {};					\
-	struct ipv6_ct_tuple *tuple;						\
-	struct ct_state *ct_state;						\
-	void *data, *data_end;							\
-	struct ipv6hdr *ip6;							\
-	__u32 zero = 0;								\
-										\
-	ct_state = (struct ct_state *)&ct_buffer.ct_state;			\
-	tuple = (struct ipv6_ct_tuple *)&ct_buffer.tuple;			\
-										\
-	if (!revalidate_data(ctx, &data, &data_end, &ip6))			\
-		return DROP_INVALID;						\
-										\
-	tuple->nexthdr = ip6->nexthdr;						\
-	ipv6_addr_copy(&tuple->daddr, (union v6addr *)&ip6->daddr);		\
-	ipv6_addr_copy(&tuple->saddr, (union v6addr *)&ip6->saddr);		\
-										\
-	hdrlen = ipv6_hdrlen(ctx, &tuple->nexthdr);				\
-	if (hdrlen < 0)								\
-		return hdrlen;							\
-										\
-	l4_off = ETH_HLEN + hdrlen;						\
-										\
-	ct_buffer.ret = ct_lookup6(get_ct_map6(tuple), tuple, ctx, l4_off,	\
-				   DIR, ct_state, &ct_buffer.monitor);		\
-	if (ct_buffer.ret < 0)							\
-		return ct_buffer.ret;						\
-										\
-	if (map_update_elem(&CT_TAIL_CALL_BUFFER6, &zero, &ct_buffer, 0) < 0)	\
-		return DROP_INVALID_TC_BUFFER;					\
-										\
-	invoke_tailcall_if(CONDITION, TARGET_ID, TARGET_NAME);			\
-	return ret;								\
+	switch (dir) {
+	case CT_EGRESS:
+		dst_id = 0;
+		dst = 0;
+		src_label = SECLABEL;
+		m_dir = METRIC_EGRESS;
+		break;
+	case CT_INGRESS:
+		dst = SECLABEL;
+		dst_id = LXC_ID;
+		src_label = ctx_load_meta(ctx, CB_SRC_LABEL);
+		m_dir = METRIC_INGRESS;
+		break;
+	/* ingress/egress only for now */
+	default:
+		return send_drop_notify(ctx, src_label, dst, dst_id, reason,
+					CTX_ACT_DROP, m_dir);
+	}
+
+	return send_drop_notify(ctx, src_label, dst, dst_id, reason,
+				CTX_ACT_DROP, m_dir);
 }
+#endif
+
+#define TAIL_CT_LOOKUP4(ID, NAME, DIR, CONDITION, TARGET_ID, TARGET_NAME)     \
+	declare_tailcall_if(CONDITION, ID) int NAME(struct __ctx_buff *ctx)   \
+	{                                                                     \
+		struct ct_buffer4 ct_buffer = {};                             \
+		int l4_off, ret = CTX_ACT_OK;                                 \
+		struct ipv4_ct_tuple *tuple;                                  \
+		struct ct_state *ct_state;                                    \
+		void *data, *data_end;                                        \
+		struct iphdr *ip4;                                            \
+		__u32 zero = 0;                                               \
+		void *map;                                                    \
+										\
+		ct_state = (struct ct_state *)&ct_buffer.ct_state;            \
+		tuple = (struct ipv4_ct_tuple *)&ct_buffer.tuple;             \
+		if (!revalidate_data(ctx, &data, &data_end, &ip4))            \
+			return drop_for_direction(ctx, DIR, DROP_INVALID);    \
+										\
+		tuple->nexthdr = ip4->protocol;                               \
+		tuple->daddr = ip4->daddr;                                    \
+		tuple->saddr = ip4->saddr;                                    \
+										\
+		l4_off = ETH_HLEN + ipv4_hdrlen(ip4);                         \
+										\
+		map = select_ct_map4(ctx, DIR, tuple);                        \
+		if (!map)                                                     \
+			return drop_for_direction(ctx, DIR,                   \
+						  DROP_CT_NO_MAP_FOUND);      \
+										\
+		ct_buffer.ret = ct_lookup4(map, tuple, ctx, l4_off, DIR,      \
+					   ct_state, &ct_buffer.monitor);     \
+		if (ct_buffer.ret < 0)                                        \
+			return drop_for_direction(ctx, DIR, ct_buffer.ret);   \
+		if (map_update_elem(&CT_TAIL_CALL_BUFFER4, &zero, &ct_buffer, \
+					0) < 0)                                   \
+			return drop_for_direction(ctx, DIR,                   \
+						  DROP_INVALID_TC_BUFFER);    \
+										\
+		invoke_tailcall_if(CONDITION, TARGET_ID, TARGET_NAME);        \
+		return ret;                                                   \
+	}
+
+#define TAIL_CT_LOOKUP6(ID, NAME, DIR, CONDITION, TARGET_ID, TARGET_NAME)     \
+	declare_tailcall_if(CONDITION, ID) int NAME(struct __ctx_buff *ctx)   \
+	{                                                                     \
+		int l4_off, ret = CTX_ACT_OK, hdrlen;                         \
+		struct ct_buffer6 ct_buffer = {};                             \
+		struct ipv6_ct_tuple *tuple;                                  \
+		struct ct_state *ct_state;                                    \
+		void *data, *data_end;                                        \
+		struct ipv6hdr *ip6;                                          \
+		__u32 zero = 0;                                               \
+										\
+		ct_state = (struct ct_state *)&ct_buffer.ct_state;            \
+		tuple = (struct ipv6_ct_tuple *)&ct_buffer.tuple;             \
+										\
+		if (!revalidate_data(ctx, &data, &data_end, &ip6))            \
+			return drop_for_direction(ctx, DIR, DROP_INVALID);	   \
+										\
+		tuple->nexthdr = ip6->nexthdr;                                \
+		ipv6_addr_copy(&tuple->daddr, (union v6addr *)&ip6->daddr);   \
+		ipv6_addr_copy(&tuple->saddr, (union v6addr *)&ip6->saddr);   \
+										\
+		hdrlen = ipv6_hdrlen(ctx, &tuple->nexthdr);                   \
+		if (hdrlen < 0)                                               \
+			return hdrlen;                                        \
+										\
+		l4_off = ETH_HLEN + hdrlen;                                   \
+										\
+		ct_buffer.ret = ct_lookup6(get_ct_map6(tuple), tuple, ctx,    \
+					   l4_off, DIR, ct_state,             \
+					   &ct_buffer.monitor);               \
+		if (ct_buffer.ret < 0)                                        \
+			return drop_for_direction(ctx, DIR, ct_buffer.ret);	   \
+										\
+		if (map_update_elem(&CT_TAIL_CALL_BUFFER6, &zero, &ct_buffer, \
+				    0) < 0)                                   \
+			return drop_for_direction(ctx, DIR, DROP_INVALID_TC_BUFFER);	   \
+										\
+		invoke_tailcall_if(CONDITION, TARGET_ID, TARGET_NAME);        \
+		return ret;                                                   \
+	}
 
 #ifdef ENABLE_CUSTOM_CALLS
 /* Encode return value and identity into cb buffer. This is used before
