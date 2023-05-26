@@ -8,24 +8,14 @@
 #   https://clang.llvm.org/docs/ClangFormat.html
 #   https://clang.llvm.org/docs/ClangFormatStyleOptions.html
 #
-# Obtained from: https://github.com/torvalds/linux/blob/master/.clang-format
-# Settings here should be compatible with (current-release-major - 2) of clang-format
 ---
 AccessModifierOffset: -4
 AlignAfterOpenBracket: Align
-AlignConsecutiveBitFields:
-  Enabled: true
-  AcrossEmptyLines: true
-  AcrossComments: true
 AlignConsecutiveAssignments: false
 AlignConsecutiveDeclarations: false
-AlignConsecutiveMacros:
-  Enabled: true
-  AcrossEmptyLines: true
-  AcrossComments: true
 AlignEscapedNewlines: Left
 AlignOperands: true
-AlignTrailingComments: true
+AlignTrailingComments: false
 AllowAllParametersOfDeclarationOnNextLine: false
 AllowShortBlocksOnASingleLine: false
 AllowShortCaseLabelsOnASingleLine: false
@@ -73,7 +63,6 @@ DerivePointerAlignment: false
 DisableFormat: false
 ExperimentalAutoDetectBinPacking: false
 FixNamespaceComments: false
-
 IncludeBlocks: Preserve
 IncludeCategories:
   - Regex: '.*'
@@ -97,18 +86,13 @@ ObjCSpaceAfterProperty: true
 ObjCSpaceBeforeProtocolList: true
 
 # Taken from git's rules
-# This decides in what order (weighting) things
-# should be done if a line is too long
-# 100 = try everything else before this.
-# See https://stackoverflow.com/a/46749925
 PenaltyBreakAssignment: 10
-PenaltyBreakBeforeFirstCallParameter: 0
-PenaltyBreakComment: 0
+PenaltyBreakBeforeFirstCallParameter: 30
+PenaltyBreakComment: 10
 PenaltyBreakFirstLessLess: 0
 PenaltyBreakString: 10
-PenaltyBreakOpenParenthesis: 100
 PenaltyExcessCharacter: 100
-PenaltyReturnTypeOnItsOwnLine: 100
+PenaltyReturnTypeOnItsOwnLine: 60
 
 PointerAlignment: Right
 ReflowComments: false
@@ -118,11 +102,8 @@ SpaceAfterCStyleCast: false
 SpaceAfterTemplateKeyword: true
 SpaceBeforeAssignmentOperators: true
 SpaceBeforeCtorInitializerColon: true
-# kernel.org sets this to true,
-# however this also seems to affect labels,
-# which seems like a bug.
-SpaceBeforeInheritanceColon: false
-SpaceBeforeParens: ControlStatements
+SpaceBeforeInheritanceColon: true
+SpaceBeforeParens: ControlStatementsExceptForEachMacros
 SpaceBeforeRangeBasedForLoopColon: true
 SpaceInEmptyParentheses: false
 SpacesBeforeTrailingComments: 1
